@@ -21,7 +21,11 @@ kubectl get ingress -A
 kubectl get pods -A | grep -E 'mcp-|registry|traefik|cert-manager'
 ```
 
-For Kind contributor clusters, prefer reusing `kind-mcp-runtime` — see `.codex/skills/qa-cluster-bringup/SKILL.md`.
+For Kind contributor clusters, keep the default context on `test-mcp-runtime`
+and prefer reusing the `mcp-runtime` cluster — see
+`.codex/skills/qa-cluster-bringup/SKILL.md`. Production uses the separate
+`~/.kube/prod-mcp-runtime-config` file and `prod-mcp-runtime` context; pass it
+explicitly for production commands, never as the default kubeconfig.
 
 For public k3s / `mcpruntime.org` deploys, also read `.codex/skills/k3s-public-ops/SKILL.md` and `docs/cluster-readiness.md`.
 
@@ -77,22 +81,9 @@ Policy reload: the gateway sidecar polls its mounted policy file every 5-7s, and
 
 ## Clean start (keep cluster, wipe workloads)
 
-This reset deletes namespaced workloads and cluster-scoped resources across the
-current context. Do not run it as routine troubleshooting. Verify the Kubernetes
-context and explain the scope first; run it only after the user explicitly
-approves this reset. Without approval, use symptom-specific remedies in
-[reference.md](reference.md) or the targeted reset in `qa-cluster-bringup`.
-
-From repo root, only after approval:
-
-```bash
-to_delete="$(kubectl api-resources --verbs=delete --namespaced -o name | paste -sd, -)"
-[ -n "$to_delete" ] && kubectl delete "$to_delete" --all -A --ignore-not-found --grace-period=0 --force
-for r in $(kubectl api-resources --verbs=delete --namespaced=false -o name); do
-  kubectl delete "$r" --all --ignore-not-found --grace-period=0 --force || true
-done
-ns_to_delete="$(kubectl get ns --no-headers | awk '{print $1}' | grep -E -v '^(kube-system|kube-public|kube-node-lease|default)$')"
-[ -n "$ns_to_delete" ] && printf '%s\n' "$ns_to_delete" | xargs kubectl delete ns
-```
-
-Then rerun `setup` or contributor bring-up per `qa-cluster-bringup`.
+Do not use a generic API-wide cleanup command here. It can delete every
+namespaced and cluster-scoped resource in the selected cluster, including
+production workloads, CRDs, and user data. Use a symptom-specific repair from
+[reference.md](reference.md). If a fresh contributor cluster is required,
+follow `qa-cluster-bringup`; any cluster deletion must target the explicit Kind
+cluster and isolated test kubeconfig, and requires the user's approval.

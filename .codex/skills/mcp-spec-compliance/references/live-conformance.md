@@ -7,8 +7,11 @@ Precondition: `qa-cluster-bringup` has run, port-forward is up, and a demo
 server is deployed with a valid grant/session.
 
 ```bash
-kubectl config current-context | grep -qx kind-mcp-runtime \
+TEST_KUBECONFIG="${TEST_KUBECONFIG:-$HOME/.kube/test-mcp-runtime-config}"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config current-context \
+  | grep -qx test-mcp-runtime \
   || { echo "Run qa-cluster-bringup first"; exit 1; }
+export KUBECONFIG="$TEST_KUBECONFIG"
 BASE=http://localhost:18080/go-example-mcp/mcp
 PROTO="$SPEC_REV"
 H=(-H "content-type: application/json"

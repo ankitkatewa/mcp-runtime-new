@@ -63,10 +63,15 @@ Do not substitute a generic review pass for a domain skill when one exists.
 For non-doc code changes, release readiness requires:
 
 ```bash
-gofmt -s -l .
-go vet ./...
-go test ./... -count=1
-go test ./test/golden/... -count=1
+TEST_ISOLATION_KUBECONFIG="$(mktemp)"
+(
+  export KUBECONFIG="$TEST_ISOLATION_KUBECONFIG"
+  gofmt -s -l .
+  go vet ./...
+  go test ./... -count=1
+  go test ./test/golden/... -count=1
+)
+rm -f "$TEST_ISOLATION_KUBECONFIG"
 ```
 
 For merge or release candidates, prefer the CI-parity gate from
@@ -77,14 +82,16 @@ drift checks, and docs-generated reference drift checks.
 For release candidates, run or verify CI has run:
 
 ```bash
-E2E_SCENARIOS=all bash test/e2e/kind.sh
+KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" \
+  E2E_SCENARIOS=all bash test/e2e/kind.sh
 ```
 
 When reusing a contributor cluster for a targeted canary, record the cached
 traffic gate:
 
 ```bash
-E2E_CACHE_MODE=1 E2E_KEEP_CLUSTER=1 CLUSTER_NAME=mcp-runtime \
+KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" \
+  E2E_CACHE_MODE=1 E2E_KEEP_CLUSTER=1 CLUSTER_NAME=mcp-runtime \
   E2E_SCENARIOS=smoke-auth,governance bash test/e2e/kind.sh
 ```
 

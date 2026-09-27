@@ -132,7 +132,10 @@ command -v jv >/dev/null || go install github.com/santhosh-tekuri/jsonschema/cmd
 JV="$(go env GOPATH)/bin/jv"
 
 # Collect captured MCP envelopes from existing tests and fixtures.
-mapfile -t FIXTURES < <(grep -rIl --include='*.go' --include='*.json' \
+FIXTURES=()
+while IFS= read -r fixture; do
+  [ -n "$fixture" ] && FIXTURES+=("$fixture")
+done < <(grep -rIl --include='*.go' --include='*.json' \
   '"jsonrpc":\s*"2\.0"' \
   -- internal/ services/ examples/ test/ pkg/ 2>/dev/null)
 echo "Found ${#FIXTURES[@]} files containing JSON-RPC envelopes"

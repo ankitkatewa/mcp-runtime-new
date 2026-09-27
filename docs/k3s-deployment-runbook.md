@@ -16,21 +16,24 @@ live example may have a different node count.
 For a provider-managed cluster, use the provider's supported login/configure
 command to write a kubeconfig context; see the per-distribution overview in
 [Deployment Targets](deployment-targets.md#get-a-kubeconfig-for-the-target-distribution).
-For this self-managed k3s cluster, an authorized operator can copy the k3s
-server kubeconfig from the control-plane VM:
+For this self-managed k3s cluster, use the isolated production file
+`$HOME/.kube/prod-mcp-runtime-config` when it is provisioned. Keep the default
+`~/.kube/config` on the contributor test context and do not merge production
+credentials into it. If the production file is missing, an authorized
+operator can copy the k3s server kubeconfig from the control-plane VM:
 
 ```bash
 source config/deployments/mcpruntime-org.env
 install -d -m 700 "$HOME/.kube"
-export KUBECONFIG="$HOME/.kube/mcpruntime-prod.yaml"
-scp "root@${MCP_PRODUCTION_SSH_HOST}:/etc/rancher/k3s/k3s.yaml" "$KUBECONFIG"
-chmod 600 "$KUBECONFIG"
+PROD_KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config"
+scp "root@${MCP_PRODUCTION_SSH_HOST}:/etc/rancher/k3s/k3s.yaml" "$PROD_KUBECONFIG"
+chmod 600 "$PROD_KUBECONFIG"
 
 # Use the control-plane API address reachable from this workstation. This
 # changes only the endpoint; keep certificate-authority-data and TLS checks.
-CLUSTER_NAME="$(kubectl --kubeconfig "$KUBECONFIG" config view --minify \
+CLUSTER_NAME="$(kubectl --kubeconfig "$PROD_KUBECONFIG" config view --minify \
   -o jsonpath='{.clusters[0].name}')"
-kubectl --kubeconfig "$KUBECONFIG" config set-cluster "$CLUSTER_NAME" \
+kubectl --kubeconfig "$PROD_KUBECONFIG" config set-cluster "$CLUSTER_NAME" \
   --server="https://<reachable-control-plane-address>:6443"
 ```
 
@@ -39,35 +42,29 @@ workstation, obtain the supported API address/network path and a kubeconfig
 from the cluster operator. Do not disable TLS verification. Keep this file
 outside the repository and private (`chmod 600`).
 
-Select and confirm the context before deploying. The shared team kubeconfig
-may already contain `prod-mcp-runtime`; use the copied file above only when
-that shared context is not available:
+Select and confirm the context before deploying. Use the isolated production
+kubeconfig and explicit context:
 
 ```bash
-kubectl --kubeconfig "$KUBECONFIG" config get-contexts
-kubectl --kubeconfig "$KUBECONFIG" config use-context prod-mcp-runtime
-kubectl --kubeconfig "$KUBECONFIG" config current-context
-kubectl --kubeconfig "$KUBECONFIG" get nodes
-export MCP_SETUP_KUBECONFIG="$KUBECONFIG"
-export MCP_KUBE_CONTEXT="$(kubectl --kubeconfig "$KUBECONFIG" config current-context)"
+PROD_KUBECONFIG="${PROD_KUBECONFIG:-$HOME/.kube/prod-mcp-runtime-config}"
+kubectl --kubeconfig "$PROD_KUBECONFIG" config get-contexts
+kubectl --kubeconfig "$PROD_KUBECONFIG" --context prod-mcp-runtime get nodes
 ```
 
 ## Prerequisites
 
 ```bash
-# Use the shared kubeconfig or the file copied in Obtain and select cluster access.
-export KUBECONFIG="$HOME/.kube/config"
-kubectl config current-context   # prod-mcp-runtime
-kubectl get nodes
-export MCP_SETUP_KUBECONFIG="$KUBECONFIG"
+# Keep the default kubeconfig on test; use the production file explicitly.
+PROD_KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config"
+kubectl --kubeconfig "$PROD_KUBECONFIG" --context prod-mcp-runtime get nodes
 
 # Build the current CLI from the selected Runtime ref.
 make build
 ./bin/mcp-runtime --version
 ```
 
-All setup commands below assume the repo root as the working directory and the
-KUBECONFIG export is in your shell.
+Production setup commands use the selected `PROD_KUBECONFIG` explicitly; do
+not export it as the workstation's default kubeconfig.
 
 ## Required environment variables
 
@@ -313,7 +310,7 @@ script uses it only for those read-only Secret and ServiceAccount checks.
 #### Minimal profile example
 
 ```bash
-export KUBECONFIG="$HOME/.kube/config"
+PROD_KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config"
 export MCP_PLATFORM_DOMAIN=mcpruntime.org
 export MCP_IMAGE_PLATFORM=linux/amd64
 export MCP_PLATFORM_ADMIN_EMAIL=admin@example.com
@@ -448,15 +445,15 @@ shared `prod-mcp-runtime` kubeconfig context.
 
 ```bash
 source config/deployments/mcpruntime-org.env
-export KUBECONFIG="$HOME/.kube/config"
-export MCP_SETUP_KUBECONFIG="$KUBECONFIG"
+PROD_KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config"
 docker info --format '{{.Name}} {{.OSType}}/{{.Architecture}}'
 RUNTIME_COMMIT="$(git rev-parse --short HEAD)"
 ROLLOUT_TAG="prod-$(date -u +%Y%m%dT%H%M%S)-${RUNTIME_COMMIT}"
 
 make build
-./bin/mcp-runtime cluster doctor
-MCP_IMAGE_PLATFORM=linux/amd64 \
+KUBECONFIG="$PROD_KUBECONFIG" ./bin/mcp-runtime cluster doctor
+KUBECONFIG="$PROD_KUBECONFIG" MCP_SETUP_KUBECONFIG="$PROD_KUBECONFIG" \
+MCP_KUBE_CONTEXT=prod-mcp-runtime MCP_IMAGE_PLATFORM=linux/amd64 \
 MCP_REGISTRY_PUSH_MODE=public \
 MCP_ROLLOUT_TAG="$ROLLOUT_TAG" \
 bash hack/deploy/mcpruntime-org/rollout.sh

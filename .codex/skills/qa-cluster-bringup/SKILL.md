@@ -22,17 +22,33 @@ run, report **blocked** with the failing command; do not downgrade to unit tests
 or static checks.
 
 Default policy: **reuse if present, create if missing.** Never tear down an
-existing `kind-mcp-runtime` cluster without explicit user confirmation —
+existing `mcp-runtime` cluster without explicit user confirmation —
 contributors may have in-flight work on it.
+
+Use only the isolated contributor kubeconfig, never the ambient or production
+kubeconfig:
+
+```bash
+TEST_KUBECONFIG="${TEST_KUBECONFIG:-$HOME/.kube/test-mcp-runtime-config}"
+mkdir -p -m 700 "$HOME/.kube"
+if kind get clusters | grep -qx mcp-runtime && \
+   ! kubectl --kubeconfig "$TEST_KUBECONFIG" config get-contexts -o name \
+     | grep -qx test-mcp-runtime; then
+  kind export kubeconfig --name mcp-runtime --kubeconfig "$TEST_KUBECONFIG"
+  kubectl --kubeconfig "$TEST_KUBECONFIG" config rename-context \
+    kind-mcp-runtime test-mcp-runtime
+  chmod 600 "$TEST_KUBECONFIG"
+fi
+```
 
 ## Step 1 — Decide cluster mode
 
 State the mode in the report.
 
-- **reuse** (default if `kind-mcp-runtime` cluster exists and `kubectl
-  --context kind-mcp-runtime get nodes` succeeds). Skip Kind creation;
+- **reuse** (default if the `mcp-runtime` Kind cluster exists and `kubectl
+  --kubeconfig "$TEST_KUBECONFIG" --context test-mcp-runtime get nodes` succeeds). Skip Kind creation;
   re-run `bootstrap` and `cluster doctor` only.
-- **create** (no `kind-mcp-runtime` context, or user asked for a clean
+- **create** (no `test-mcp-runtime` context, or user asked for a clean
   cluster). Full path: Kind create → build → setup → deploy demo → grant.
 - **rebuild-from-broken** (cluster exists but `cluster doctor` fails). Try
   targeted repair first (rollout restart, re-apply `pipeline deploy`); only
@@ -42,7 +58,8 @@ Detect with:
 
 ```bash
 kind get clusters | grep -qx mcp-runtime && echo "reuse" || echo "create"
-kubectl config get-contexts -o name | grep -qx kind-mcp-runtime || echo "no-context"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config get-contexts -o name \
+  | grep -qx test-mcp-runtime || echo "no-context"
 ```
 
 ## Step 2 — Host preflight
@@ -75,8 +92,13 @@ containerdConfigPatches:
       endpoint = ["http://127.0.0.1:32000"]
 EOF
 
-kind create cluster --name mcp-runtime --config "$TMP_KIND_CONFIG"
-kubectl config use-context kind-mcp-runtime
+kind create cluster --name mcp-runtime --config "$TMP_KIND_CONFIG" \
+  --kubeconfig "$TEST_KUBECONFIG" --wait 120s
+chmod 600 "$TEST_KUBECONFIG"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config rename-context \
+  kind-mcp-runtime test-mcp-runtime
+kubectl --kubeconfig "$TEST_KUBECONFIG" config use-context test-mcp-runtime
+export KUBECONFIG="$TEST_KUBECONFIG"
 ```
 
 ## Step 4 — Build CLI and install platform
@@ -169,8 +191,8 @@ servers:
     envVars:
       - { name: MCP_PATH, value: /workspace-assistant-mcp/mcp }
     tools:
-      - { name: add,   requiredTrust: low }
-      - { name: upper, requiredTrust: medium }
+      - { name: add,   requiredTrust: low, sideEffect: read }
+      - { name: upper, requiredTrust: medium, sideEffect: read }
     auth:
       mode: header
       humanIDHeader: X-MCP-Human-ID
@@ -223,6 +245,7 @@ spec:
   serverRef: { name: workspace-assistant-mcp }
   subject: { humanID: local-user, agentID: local-agent }
   maxTrust: high
+  allowedSideEffects: [read]
   policyVersion: v1
   toolRules:
     - { name: add,   decision: allow }

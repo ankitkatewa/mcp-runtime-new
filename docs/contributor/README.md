@@ -79,9 +79,14 @@ Run the smallest checks that prove your change, then widen only when the blast
 radius needs it.
 
 ```bash
-gofmt -s -l .
-go vet ./...
-go test ./... -count=1
+TEST_ISOLATION_KUBECONFIG="$(mktemp)"
+(
+  export KUBECONFIG="$TEST_ISOLATION_KUBECONFIG"
+  gofmt -s -l .
+  go vet ./...
+  go test ./... -count=1
+)
+rm -f "$TEST_ISOLATION_KUBECONFIG"
 git diff --check
 ```
 
@@ -89,9 +94,12 @@ For changes that affect Kind setup, ingress, registry pushes, gateway policy,
 sessions, grants, analytics, or tenant isolation, run the relevant e2e scenario:
 
 ```bash
-E2E_CACHE_MODE=1 E2E_SCENARIOS=smoke-auth bash test/e2e/kind.sh
-E2E_CACHE_MODE=1 E2E_SCENARIOS=governance bash test/e2e/kind.sh
-E2E_CACHE_MODE=1 E2E_SCENARIOS=multitenancy bash test/e2e/kind.sh
+KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" E2E_CACHE_MODE=1 \
+  E2E_SCENARIOS=smoke-auth bash test/e2e/kind.sh
+KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" E2E_CACHE_MODE=1 \
+  E2E_SCENARIOS=governance bash test/e2e/kind.sh
+KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" E2E_CACHE_MODE=1 \
+  E2E_SCENARIOS=multitenancy bash test/e2e/kind.sh
 ```
 
 Set `E2E_PLATFORM_MODE=org` or `E2E_PLATFORM_MODE=public` when you need the

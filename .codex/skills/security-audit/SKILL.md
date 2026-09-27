@@ -96,8 +96,10 @@ only for design questions; ordinary change-scoped security reviews do not need i
      include `pull_request_target` plus a checkout of untrusted HEAD.
    - **Auth, policy, or gateway change:** run the nearest unit tests plus
      the governance or smoke-auth E2E path
-     (`E2E_SCENARIOS=smoke-auth,governance bash test/e2e/kind.sh`) when
-     the live request path changed.
+     (`KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" E2E_SCENARIOS=smoke-auth,governance bash test/e2e/kind.sh`)
+     when the live request path changed. Confirm that kubeconfig resolves to
+     `test-mcp-runtime` before running it; never let this command inherit a
+     production context.
 
 4. Report using the shared finding format.
    - Use the template and severity rubric in

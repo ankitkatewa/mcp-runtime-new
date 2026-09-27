@@ -31,19 +31,23 @@ cannot close this skill as passed.
 ## Step 1 — Confirm precondition
 
 ```bash
-kubectl config current-context | grep -qx kind-mcp-runtime \
+TEST_KUBECONFIG="${TEST_KUBECONFIG:-$HOME/.kube/test-mcp-runtime-config}"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config current-context \
+  | grep -qx test-mcp-runtime \
   || { echo "Run qa-cluster-bringup first"; exit 1; }
+export KUBECONFIG="$TEST_KUBECONFIG"
 ./bin/mcp-runtime cluster doctor
 ```
 
-Pull the three key types up front; **never echo them into the report**.
+Pull admin and ingest keys separately; do not assume a UI key is authorized
+as an admin key. Never echo keys into the report.
 
 ```bash
-UI_KEY="$(kubectl get secret mcp-sentinel-secrets -n mcp-sentinel \
-  -o jsonpath='{.data.UI_API_KEY}' | base64 -d)"
-test -n "$UI_KEY" || { echo "Failed to retrieve UI_KEY"; exit 1; }
+ADMIN_KEY="$(kubectl get secret mcp-sentinel-secrets -n mcp-sentinel \
+  -o jsonpath='{.data.ADMIN_API_KEYS}' | base64 -d | cut -d, -f1)"
 INGEST_KEY="$(kubectl get secret mcp-sentinel-secrets -n mcp-sentinel \
   -o jsonpath='{.data.INGEST_API_KEYS}' | base64 -d | cut -d, -f1)"
+test -n "$ADMIN_KEY" || { echo "Failed to retrieve ADMIN_API_KEYS"; exit 1; }
 test -n "$INGEST_KEY" || { echo "Failed to retrieve INGEST_KEY"; exit 1; }
 ```
 
@@ -81,9 +85,9 @@ curl -sS -o /dev/null -w "bad=%{http_code}\n" \
 curl -sS -o /dev/null -w "ingest_only=%{http_code}\n" \
   -H "x-api-key: $INGEST_KEY" http://localhost:18080/api/v1/dashboard/summary
 
-# Admin/UI key → 200.
+# Admin key → 200.
 curl -sS -o /dev/null -w "admin=%{http_code}\n" \
-  -H "x-api-key: $UI_KEY" http://localhost:18080/api/v1/dashboard/summary
+  -H "x-api-key: $ADMIN_KEY" http://localhost:18080/api/v1/dashboard/summary
 
 # Mutating admin endpoints require admin (not just user). Try a write with
 # only the ingest key and confirm 401/403:
@@ -92,7 +96,7 @@ curl -sS -o /dev/null -w "ingest_write=%{http_code}\n" -X POST \
   -d '{}' http://localhost:18080/api/v1/runtime/grants
 ```
 
-Any admin response code other than 200 with `$UI_KEY` is a finding. Any non-401/403
+Any admin response code other than 200 with `$ADMIN_KEY` is a finding. Any non-401/403
 on the anonymous / bad-key / ingest-only paths is a **High** severity finding —
 matches `RequireRole` enforcement in each split service `routes.go`.
 
@@ -126,23 +130,21 @@ call '{"name":"add","arguments":{"a":2,"b":3}}'      # want allow
 Toggle the grant off → expect deny within a few seconds (sidecar reload):
 
 ```bash
-kubectl annotate mcpaccessgrant workspace-assistant-local -n mcp-servers \
-  qa.mcpruntime.org/disable="$(date +%s)" --overwrite
-# CLI toggle is also available; use whichever the docs already exercise:
-# ./bin/mcp-runtime access grant disable workspace-assistant-local --namespace mcp-servers
+kubectl patch mcpaccessgrant workspace-assistant-local -n mcp-servers \
+  --type=merge -p '{"spec":{"disabled":true}}'
 
 sleep 8
 init
 RESP="$(call '{"name":"add","arguments":{"a":2,"b":3}}')"
-echo "$RESP" | grep -qiE 'denied|forbidden|policy' \
+echo "$RESP" | grep -qiE 'tool_not_granted|denied|forbidden|policy' \
   || { echo "FAIL: disabled grant still allowed"; echo "$RESP"; }
 ```
 
 Re-enable to leave the cluster in a working state for downstream skills:
 
 ```bash
-kubectl annotate mcpaccessgrant workspace-assistant-local -n mcp-servers \
-  qa.mcpruntime.org/disable- || true
+kubectl patch mcpaccessgrant workspace-assistant-local -n mcp-servers \
+  --type=merge -p '{"spec":{"disabled":false}}'
 kubectl apply -f /tmp/workspace-assistant-access.yaml
 sleep 8
 ```
@@ -157,7 +159,7 @@ kubectl patch mcpagentsession local-session -n mcp-servers --type=merge \
        qa.mcpruntime.org/revoke="$(date +%s)" --overwrite
 sleep 8
 init
-call '{"name":"add","arguments":{"a":2,"b":3}}' | grep -qiE 'session|denied' \
+call '{"name":"add","arguments":{"a":2,"b":3}}' | grep -qiE 'session_revoked|session_not_found|denied' \
   || echo "FAIL: revoked session still allowed"
 kubectl patch mcpagentsession local-session -n mcp-servers --type=merge \
   -p '{"spec":{"revoked":false}}' 2>/dev/null || true
@@ -191,7 +193,6 @@ previously-seen failure, unrelated to any code change). Check
 a `502` as an audit-path finding.
 
 ```bash
-ADMIN_KEY="$UI_KEY"
 BEFORE="$(curl -sS -H "x-api-key: $ADMIN_KEY" \
   "http://localhost:18080/api/v1/events?server=workspace-assistant-mcp&limit=100" \
   | jq '.events | length // length // 0')"
@@ -244,7 +245,7 @@ curl -sSI -H "X-Forwarded-Proto: https" http://localhost:18080/ \
   || echo "FAIL: HSTS missing on forwarded HTTPS"
 
 # /api/v1 responses must be uncacheable.
-curl -sSI -H "x-api-key: $UI_KEY" http://localhost:18080/api/v1/dashboard/summary \
+curl -sSI -H "x-api-key: $ADMIN_KEY" http://localhost:18080/api/v1/dashboard/summary \
   | tr -d '\r' | grep -qi '^Cache-Control:.*no-store' \
   || echo "FAIL: /api/v1 Cache-Control"
 ```
@@ -308,7 +309,7 @@ curl -sS -o /dev/null -w "unlisted_proxy_path=%{http_code}\n" \
   -b /tmp/c.txt http://localhost:18080/api/ui/v1/runtime/unlisted-path
 
 # Direct API-key client should also work, on the direct path.
-curl -sS -H "x-api-key: $UI_KEY" http://localhost:18080/api/v1/dashboard/summary \
+curl -sS -H "x-api-key: $ADMIN_KEY" http://localhost:18080/api/v1/dashboard/summary \
   | jq -e '.' >/dev/null || echo "FAIL: direct key client"
 ```
 

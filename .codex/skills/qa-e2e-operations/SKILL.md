@@ -23,8 +23,11 @@ traffic gate cannot run, mark the operations result **blocked**, not passed.
 ## Step 1 — Confirm precondition
 
 ```bash
-kubectl config current-context | grep -qx kind-mcp-runtime \
+TEST_KUBECONFIG="${TEST_KUBECONFIG:-$HOME/.kube/test-mcp-runtime-config}"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config current-context \
+  | grep -qx test-mcp-runtime \
   || { echo "Run qa-cluster-bringup first"; exit 1; }
+export KUBECONFIG="$TEST_KUBECONFIG"
 ./bin/mcp-runtime cluster doctor
 ```
 
@@ -61,6 +64,10 @@ run the CI-equivalent non-cluster checks before the live cluster matrix. Do not
 claim full regression coverage if any required CI parity check is skipped.
 
 ```bash
+(
+TEST_ISOLATION_KUBECONFIG="$(mktemp)"
+trap 'rm -f "$TEST_ISOLATION_KUBECONFIG"' EXIT
+export KUBECONFIG="$TEST_ISOLATION_KUBECONFIG"
 gofmt -s -l .
 go vet ./...
 staticcheck ./...
@@ -80,6 +87,7 @@ go test -race -timeout 30m -count=1 ./test/integration/...
 make -f Makefile.operator generate manifests
 python3 docs/scripts/generate_go_package_reference.py
 git diff --exit-code
+)
 ```
 
 ## Step 4 — Baseline (always run)
@@ -97,15 +105,16 @@ kubectl get events -A --sort-by=.lastTimestamp | tail -40
 Then the contributor traffic gate (regression canary):
 
 ```bash
-E2E_CACHE_MODE=1 E2E_KEEP_CLUSTER=1 CLUSTER_NAME=mcp-runtime \
-  E2E_SCENARIOS=smoke-auth,governance bash test/e2e/kind.sh
+KUBECONFIG="$TEST_KUBECONFIG" E2E_CACHE_MODE=1 E2E_KEEP_CLUSTER=1 \
+  CLUSTER_NAME=mcp-runtime E2E_SCENARIOS=smoke-auth,governance \
+  bash test/e2e/kind.sh
 ```
 
 For merge readiness after non-doc code changes, also run or verify CI ran the
 full Kind matrix:
 
 ```bash
-E2E_SCENARIOS=all bash test/e2e/kind.sh
+KUBECONFIG="$TEST_KUBECONFIG" E2E_SCENARIOS=all bash test/e2e/kind.sh
 ```
 
 Reusing the contributor cluster is intentional — `CLAUDE.md` documents that

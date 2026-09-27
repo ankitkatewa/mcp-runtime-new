@@ -27,11 +27,13 @@ user-facing commands and scripts over private shortcuts.
 
 - SSH host: `root@${MCP_PRODUCTION_SSH_HOST}` from `config/deployments/mcpruntime-org.env`
 - Preferred workstation key: `~/.ssh/id_ed25519`
-- Production kubeconfig: use the team-shared file when provisioned; otherwise
+- Production kubeconfig on the contributor workstation:
+  `~/.kube/prod-mcp-runtime-config`, context `prod-mcp-runtime`. The default
+  `~/.kube/config` stays on the test context `test-mcp-runtime`; do not merge
+  production credentials into it. If the named production file is unavailable,
   follow [Obtain and select cluster access](../../../docs/k3s-deployment-runbook.md#obtain-and-select-cluster-access)
-  to retrieve it securely from the k3s server and validate the API endpoint,
-  context, and TLS. Never assume a contributor temp path exists or commit
-  kubeconfig material.
+  to retrieve a kubeconfig securely and validate its API endpoint, context, and
+  TLS. Never assume a contributor temp path exists or commit kubeconfig material.
 
 Use the VM password only for a one-time interactive SSH-key installation. Never
 store that password in this skill, `AGENTS.md`, repository env files, shell
@@ -42,8 +44,16 @@ source config/deployments/mcpruntime-org.env
 ssh root@"${MCP_PRODUCTION_SSH_HOST}" 'hostname && kubectl config current-context'
 ```
 
-Then copy or provision the approved kubeconfig locally, set `KUBECONFIG`, and
-run `cluster doctor` before any production mutation.
+Then copy or provision the approved kubeconfig locally. Keep the default
+context on test and pass the production file explicitly to each production
+command. Confirm the context and run `cluster doctor` before any production
+mutation:
+
+```bash
+PROD_KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config"
+kubectl --kubeconfig "$PROD_KUBECONFIG" --context prod-mcp-runtime get nodes
+KUBECONFIG="$PROD_KUBECONFIG" ./bin/mcp-runtime cluster doctor
+```
 
 ## Non-Negotiables
 
@@ -56,7 +66,8 @@ run `cluster doctor` before any production mutation.
   discard local changes without the user's direction.
 - For production image builds, use the workstation's selected Docker daemon
   and set `MCP_IMAGE_PLATFORM` to the target node architecture (currently
-  `linux/amd64`). Keep `KUBECONFIG` on the shared production context. Use
+  `linux/amd64`). Keep the default kubeconfig on test; set `KUBECONFIG` to the
+  production file only for each production command. Use
   `MCP_REGISTRY_PUSH_MODE=public` to push images to
   `registry.<domain>/<image>:<unique-tag>`.
 - mcp-auth is a separate release track. Leave its Deployment unchanged unless
@@ -117,7 +128,7 @@ run `cluster doctor` before any production mutation.
 - `cluster doctor` uses `KUBECONFIG` env, not `--kubeconfig`:
 
 ```bash
-KUBECONFIG="$HOME/.kube/config" ./bin/mcp-runtime cluster doctor
+KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config" ./bin/mcp-runtime cluster doctor
 ```
 
 - For public bundled HTTPS, platform and tenant pull refs should use the
@@ -141,8 +152,8 @@ Run the actual script path:
 ```bash
 bash -n hack/deploy/mcpruntime-org/setup.sh
 bash hack/deploy/mcpruntime-org/setup.sh
-KUBECONFIG="$HOME/.kube/config" ./bin/mcp-runtime cluster doctor
-kubectl --kubeconfig "$KUBECONFIG" get pods -A
+KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config" ./bin/mcp-runtime cluster doctor
+kubectl --kubeconfig "$HOME/.kube/prod-mcp-runtime-config" --context prod-mcp-runtime get pods -A
 ```
 
 Healthy setup signs:
@@ -191,9 +202,10 @@ apply. Do not apply stale `resourceVersion`, `uid`, `managedFields`, or
 
 Run with a unique tag. For the public production cluster, set
 `MCP_IMAGE_PLATFORM=linux/amd64`, set `MCP_REGISTRY_PUSH_MODE=public`, and
-point `MCP_SETUP_KUBECONFIG` to the shared kubeconfig currently on the
-`prod-mcp-runtime` context. The production profile remains the source for the
-domain and other deployment settings.
+point `KUBECONFIG` and `MCP_SETUP_KUBECONFIG` to
+`$HOME/.kube/prod-mcp-runtime-config` and select `prod-mcp-runtime`. Do not
+change the default test context. The production profile remains the source for
+the domain and other deployment settings.
 
 The user-facing release check is separate from the rollout command. Follow
 `docs/quickstart.md` with the candidate CLI, then verify the same server,
@@ -215,7 +227,7 @@ kubectl --kubeconfig "$KUBECONFIG" \
   get deploy mcp-platform-api mcp-runtime-api mcp-analytics-api mcp-sentinel-ui -n mcp-sentinel \
   -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{range .spec.template.spec.imagePullSecrets[*]}{.name}{","}{end}{"|"}{range .spec.template.spec.containers[*]}{.image}{";"}{end}{"|"}{.status.readyReplicas}{"/"}{.status.replicas}{"\n"}{end}'
 
-KUBECONFIG="$KUBECONFIG" ./bin/mcp-runtime cluster doctor
+KUBECONFIG="$HOME/.kube/prod-mcp-runtime-config" ./bin/mcp-runtime cluster doctor
 ```
 
 ## Registry Debug Shortcuts

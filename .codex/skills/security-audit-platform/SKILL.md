@@ -21,6 +21,13 @@ cluster. Findings use the shared template at
 This skill is intentionally heavy. Expect hours, not minutes. Skip nothing
 silently — every check that did not run becomes a recorded gap.
 
+Run live probes against the isolated contributor Kind cluster or a disposable
+staging target by default. Verify the target kubeconfig/context before any
+probe that changes state. Never run DoS, oversized-body, high-concurrency, or
+resource-exhaustion probes against production unless the user explicitly
+authorizes that exact target and test window; prefer a production read-only
+review and report the dynamic checks as out of scope.
+
 ## Step 1 — Build the threat model before running tools
 
 Produce a STRIDE table per component. Components to cover:
@@ -116,22 +123,22 @@ rm -f "$JAR"
 ```
 
 Add matrix rows for every allowlisted proxy path (`/api/ui/v1/dashboard/summary`,
-`/runtime/{namespaces,servers,tools,server-events,teams,grants,sessions,
+`/runtime/{namespaces,servers,tools,server-events,teams,agents,grants,sessions,
 components,policy,observability/*}`, `/user/api-keys`,
 `/admin/{operations,deployments}`, `/events`, `/analytics/usage`,
 `/user/analytics/usage` — see `sessionProxyRuntimePrefixes` /
 `sessionProxyAnalyticsPrefixes` in `session_proxy.go` for the authoritative
 list) and confirm a missing/expired/invalid session returns 401 on each.
-A cookie-authenticated write allowlist already exists in `session_proxy.go`
-(`sessionProxyWriteRoutes`) — this is not a hypothetical a future branch
-might add. As of this audit it covers `/user/api-keys` (POST, DELETE),
-`/runtime/grants` (POST, PATCH, DELETE), `/runtime/sessions` (POST, PATCH,
-DELETE), `/runtime/teams` and its `/members`/`/users` sub-paths (POST, PUT,
-DELETE), and `/runtime/actions/restart` (POST) — re-check
-`sessionProxyWriteRoutes` for the current list, since branches regularly add
-routes here (e.g. server retire). Every non-GET request, allowlisted or not,
-goes through CSRF verification (`verifyCSRF`) before reaching the upstream.
-Audit both directions:
+A cookie-authenticated write allowlist exists in `session_proxy.go`
+(`sessionProxyWriteRoutes`). Its current routes include `/user/api-keys`
+(POST, DELETE item), `/runtime/grants` (POST, PATCH, DELETE item, POST
+`revoke-sessions`), `/runtime/sessions` (POST, PATCH, DELETE item), team
+membership and agent lifecycle routes, `/runtime/agents/{id}` (PATCH),
+`/runtime/servers/{namespace}/{name}` (DELETE), and
+`/runtime/actions/restart` (POST). Re-read `sessionProxyWriteRoutes` as the
+source of truth before each audit. Allowed writes pass CSRF verification
+(`verifyCSRF`) before reaching the upstream; methods outside the allowlist
+return 405 before session or CSRF validation. Audit both paths:
 
 - Non-GET methods **not** on the allowlist still return 405 (`sessionProxyWriteAllowed`
   rejects them before the CSRF/session check even runs).
@@ -153,14 +160,19 @@ Build adversarial cases against governance. Pre-create:
 - servers `srv-one` in namespace `tenant-a`, `srv-two` in namespace `tenant-b`.
 - grants and sessions for each tenant.
 
+Create agents through the team directory and use their actual active IDs
+(`agt_<26-character lowercase ULID>`); placeholder IDs may be rejected before
+the cross-team authorization check is reached.
+
 Probes (each is a finding when it succeeds):
 
 - Replay `Mcp-Session-Id` from tenant A against `srv-two` URL.
 - POST `MCPAccessGrant` whose `serverRef` targets a server in another
-  namespace; confirm rejection (CLAUDE.md notes the API check is best-effort,
-  not transactional — race it during reconcile).
+  namespace; confirm rejection. Read the current handler and API contract
+  before describing whether validation is transactional.
 - Disable a grant mid-call: hold an in-flight `tools/call` open, toggle
-  `POST /api/v1/runtime/grants/{ns}/{name}/disable`, assert the next request is
+  `PATCH /api/v1/runtime/grants/{ns}/{name}` with `{"disabled":true}` (the
+  legacy POST `/disable` route also exists), and assert the next request is
   denied within the proxy poll window.
 - Toggle `revoke` on a session and immediately reuse the session ID.
 - Apply `MCPServer` whose `ingressHost` collides with another tenant's host.
@@ -182,12 +194,15 @@ Fuzz the proxy/gateway request handling. Targets:
   parallel `tools/call` against the same session ID from N goroutines.
 
 If a Go fuzz target exists in `services/mcp-gateway/`:
-`go test -run='^$' -fuzz='Fuzz<Name>' -fuzztime=300s ./...`
+`KUBECONFIG="$(mktemp)" go test -run='^$' -fuzz='Fuzz<Name>' -fuzztime=300s ./...`
 
 If no fuzz target exists at this trust boundary, that absence is itself a
 finding (Medium).
 
 ## Step 5 — DoS and resource exhaustion
+
+Run this section only on a disposable Kind/staging target. Do not point these
+probes at a production hostname or cluster without explicit authorization.
 
 - **Slow read**: open many connections to `mcp.<domain>/<name>/mcp`, send one
   byte per second; assert connection limits and read-timeout enforcement.

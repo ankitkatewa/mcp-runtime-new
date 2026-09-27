@@ -4,7 +4,7 @@
     {
       "id": "recover-existing-kind-cluster",
       "prompt": "Prepare the contributor Kind cluster for e2e QA. Reuse the existing mcp-runtime cluster if it is healthy.",
-      "expected_output": "A cluster bring-up or recovery flow that checks host tools, reuses healthy kind-mcp-runtime, builds the CLI, verifies platform health, exposes ingress, deploys the Go example, applies a grant/session, and gates on a real tools/call.",
+      "expected_output": "A cluster bring-up or recovery flow that checks host tools, reuses the mcp-runtime Kind cluster only through the isolated test-mcp-runtime kubeconfig, builds the CLI, verifies platform health, exposes ingress, deploys the Go example, applies a grant/session, and gates on a real tools/call.",
       "assertions": [
         "Does not delete an existing cluster without explicit approval",
         "Runs the real MCP traffic gate before declaring success",

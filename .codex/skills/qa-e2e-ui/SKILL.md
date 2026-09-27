@@ -44,8 +44,11 @@ Do not reinstall the platform or run codegen as part of UI QA. The live
 cluster is the source of truth.
 
 ```bash
-kubectl config current-context | grep -qx kind-mcp-runtime \
+TEST_KUBECONFIG="${TEST_KUBECONFIG:-$HOME/.kube/test-mcp-runtime-config}"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config current-context \
+  | grep -qx test-mcp-runtime \
   || { echo "Run qa-cluster-bringup first"; exit 1; }
+export KUBECONFIG="$TEST_KUBECONFIG"
 
 curl -fsS -o /dev/null http://localhost:18080/ \
   || { echo "Traefik port-forward not running; run: kubectl port-forward -n traefik svc/traefik 18080:8000"; exit 1; }
@@ -303,12 +306,17 @@ the touched surface. Do not run codegen, formatters, setup reinstall, or any
 command that rewrites tracked files during the audit.
 
 ```bash
+(
+TEST_ISOLATION_KUBECONFIG="$(mktemp)"
+trap 'rm -f "$TEST_ISOLATION_KUBECONFIG"' EXIT
+export KUBECONFIG="$TEST_ISOLATION_KUBECONFIG"
 (cd services/ui && go test ./... -race -count=1)
 (cd services/ui/frontend && npm test && npm run build)
 node --check services/ui/static/legacy/app.js
 go test ./internal/cli/... ./cmd/mcp-runtime/... -count=1
 go test ./test/golden/... -count=1
-E2E_CACHE_MODE=1 \
+)
+KUBECONFIG="$TEST_KUBECONFIG" E2E_CACHE_MODE=1 \
   E2E_SCENARIOS=smoke-auth,governance \
   CLUSTER_NAME=mcp-runtime \
   E2E_KEEP_CLUSTER=1 \

@@ -93,17 +93,22 @@ test-mode path. The contributor docs own this path completely:
 - [Contributor Guide](contributor/README.md)
 - [Local Kind and Test Mode](contributor/local-kind.md)
 
-Quick path (requires `kind` on `PATH`):
+Quick path (requires `kind` on `PATH`; the linked guide creates an isolated
+test kubeconfig so this does not use the ambient or production context):
 
 ```bash
 make deps && make build
-kind create cluster --name mcp-runtime
+# Follow Local Kind and Test Mode to create/export the test kubeconfig first.
+export KUBECONFIG="$HOME/.kube/test-mcp-runtime-config"
 ./bin/mcp-runtime bootstrap
 ./bin/mcp-runtime cluster doctor
 ./bin/mcp-runtime setup --test-mode --ingress-manifest config/ingress/overlays/http
 kubectl port-forward -n traefik svc/traefik 18080:8000
 ./bin/mcp-runtime cluster diagnostics
 ```
+
+See [Local Kind and Test Mode](contributor/local-kind.md) for fresh-device and
+existing-cluster instructions, including the isolated kubeconfig setup.
 
 `bootstrap` and `cluster doctor` run before setup: `bootstrap` reports (and on
 k3s can install) missing cluster prerequisites, `cluster doctor` checks nodes,

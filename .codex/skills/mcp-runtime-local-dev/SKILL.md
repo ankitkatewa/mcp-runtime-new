@@ -1,6 +1,6 @@
 ---
 name: mcp-runtime-local-dev
-description: Local Kind contributor endpoints, API keys, test-mode logins, port-forward URLs, and Sentinel auth for MCP Runtime. Use when developing against kind-mcp-runtime, curling `/api/v1` or MCP paths on localhost:18080, or debugging 401s in test-mode — after cluster bring-up (qa-cluster-bringup).
+description: Local Kind contributor endpoints, API keys, test-mode logins, port-forward URLs, and Sentinel auth for MCP Runtime. Use when developing against the `mcp-runtime` Kind cluster with `test-mcp-runtime` context, curling `/api/v1` or MCP paths on localhost:18080, or debugging 401s in test-mode — after cluster bring-up (qa-cluster-bringup).
 ---
 
 # MCP Runtime — local dev endpoints and auth
@@ -8,6 +8,11 @@ description: Local Kind contributor endpoints, API keys, test-mode logins, port-
 ## Prerequisites
 
 Cluster running per `.codex/skills/qa-cluster-bringup/SKILL.md` or `docs/contributor/README.md`.
+On a fresh workstation, create the isolated test kubeconfig using
+`.codex/skills/qa-cluster-bringup/SKILL.md` or
+`docs/contributor/local-kind.md`. Keep `KUBECONFIG` on
+`$HOME/.kube/test-mcp-runtime-config` for local commands; do not use the
+production kubeconfig for test-mode setup.
 
 ```bash
 kubectl port-forward -n traefik svc/traefik 18080:8000
@@ -28,9 +33,14 @@ PII redaction: `config/ingress/overlays/http` + `pii-redactor@file` — keep off
 ## API keys
 
 ```bash
-kubectl get secret mcp-sentinel-secrets -n mcp-sentinel -o jsonpath='{.data.UI_API_KEY}' | base64 -d
-kubectl get secret mcp-sentinel-secrets -n mcp-sentinel -o jsonpath='{.data.INGEST_API_KEYS}' | base64 -d
+UI_KEY="$(kubectl get secret mcp-sentinel-secrets -n mcp-sentinel \
+  -o jsonpath='{.data.UI_API_KEY}' | base64 -d)"
+INGEST_KEY="$(kubectl get secret mcp-sentinel-secrets -n mcp-sentinel \
+  -o jsonpath='{.data.INGEST_API_KEYS}' | base64 -d)"
 ```
+
+Use these variables in local requests; avoid printing their values or adding
+them to reports.
 
 - `UI_API_KEY` must appear in both `API_KEYS` and `ADMIN_API_KEYS` for admin curl + browser login
 - `INGEST_API_KEYS` for analytics ingest only

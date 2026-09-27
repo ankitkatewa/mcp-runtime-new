@@ -74,7 +74,10 @@ curl -sS -H "content-type: application/json" \
 # Capture Mcp-Session-Id from response headers, then notifications/initialized and tools/call with -H "Mcp-Session-Id: <session>"
 ```
 
-Kind e2e applies generated access YAML and exercises allow/deny over real MCP traffic — see `test/e2e/kind.sh` and `test/e2e/select_pr_scenarios.sh` (`governance`, `trust`, `adapter-proxy`).
+Kind e2e applies generated access YAML and exercises allow/deny over real MCP
+traffic — run it with the explicit contributor kubeconfig, for example
+`KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" E2E_SCENARIOS=governance,trust,adapter-proxy bash test/e2e/kind.sh`.
+See `test/e2e/kind.sh` and `test/e2e/select_pr_scenarios.sh` for scenario names.
 
 ## Code map
 

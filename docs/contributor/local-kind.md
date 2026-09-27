@@ -19,8 +19,16 @@ The documented test-mode install emits pod images that use
 `registry.registry.svc.cluster.local:5000/...`. The Kind node needs a matching
 containerd mirror before setup runs.
 
+Keep the contributor cluster in its own kubeconfig so a fresh setup never
+depends on the ambient context or a production kubeconfig. This leaves
+`~/.kube/config` and any production credentials untouched.
+
 ```bash
-cat > /tmp/mcp-runtime-kind.yaml <<'EOF'
+mkdir -p -m 700 "$HOME/.kube"
+TEST_KUBECONFIG="$HOME/.kube/test-mcp-runtime-config"
+KIND_CONFIG="$(mktemp)"
+trap 'rm -f "$KIND_CONFIG"' EXIT
+cat > "$KIND_CONFIG" <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 containerdConfigPatches:
@@ -29,8 +37,30 @@ containerdConfigPatches:
       endpoint = ["http://127.0.0.1:32000"]
 EOF
 
-kind create cluster --name mcp-runtime --config /tmp/mcp-runtime-kind.yaml
-kubectl config use-context kind-mcp-runtime
+kind create cluster --name mcp-runtime --config "$KIND_CONFIG" \
+  --kubeconfig "$TEST_KUBECONFIG" --wait 120s
+chmod 600 "$TEST_KUBECONFIG"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config rename-context \
+  kind-mcp-runtime test-mcp-runtime
+kubectl --kubeconfig "$TEST_KUBECONFIG" config use-context test-mcp-runtime
+export KUBECONFIG="$TEST_KUBECONFIG"
+kubectl config current-context
+kubectl get nodes
+```
+
+For an existing `mcp-runtime` Kind cluster, export its kubeconfig into the
+isolated test file, rename the generated context, and verify the nodes before
+using it:
+
+```bash
+TEST_KUBECONFIG="$HOME/.kube/test-mcp-runtime-config"
+kind export kubeconfig --name mcp-runtime --kubeconfig "$TEST_KUBECONFIG"
+chmod 600 "$TEST_KUBECONFIG"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config rename-context \
+  kind-mcp-runtime test-mcp-runtime
+kubectl --kubeconfig "$TEST_KUBECONFIG" config use-context test-mcp-runtime
+export KUBECONFIG="$TEST_KUBECONFIG"
+kubectl get nodes
 ```
 
 ## Install MCP Runtime
@@ -53,6 +83,16 @@ Check the platform:
 ./bin/mcp-runtime registry status
 ./bin/mcp-runtime sentinel status   # admin kubectl
 ./bin/mcp-runtime cluster diagnostics
+```
+
+The same shell must keep `KUBECONFIG` set to
+`$HOME/.kube/test-mcp-runtime-config` while running contributor commands.
+Pass that path explicitly when invoking E2E scripts:
+
+```bash
+KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" \
+  E2E_CACHE_MODE=1 E2E_KEEP_CLUSTER=1 CLUSTER_NAME=mcp-runtime \
+  E2E_SCENARIOS=smoke-auth,governance bash test/e2e/kind.sh
 ```
 
 Expose the dashboard and MCP routes:

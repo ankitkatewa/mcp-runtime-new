@@ -26,8 +26,11 @@ baseline creation as the task.
 ## Step 1 — Confirm precondition
 
 ```bash
-kubectl config current-context | grep -qx kind-mcp-runtime \
+TEST_KUBECONFIG="${TEST_KUBECONFIG:-$HOME/.kube/test-mcp-runtime-config}"
+kubectl --kubeconfig "$TEST_KUBECONFIG" config current-context \
+  | grep -qx test-mcp-runtime \
   || { echo "Run qa-cluster-bringup first"; exit 1; }
+export KUBECONFIG="$TEST_KUBECONFIG"
 ./bin/mcp-runtime cluster doctor
 # Quiet the cluster: drain any leftover concurrent traffic from prior skills.
 sleep 5
@@ -125,18 +128,20 @@ def post(p, sess=None):
     with urllib.request.urlopen(req, timeout=15) as r: return r.status, r.headers.get("Mcp-Session-Id", sess), r.read()
 _, sess, _ = post({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})
 post({"jsonrpc":"2.0","method":"notifications/initialized"}, sess)
-lats=[]; errs=0; lock=threading.Lock(); per_thread=n//c
+lats=[]; errors=[]; lock=threading.Lock(); per_thread=n//c
 def work(tid):
-    nonlocal_ = {"errs":0}
+    worker_errors=0
     local=[]
     for i in range(per_thread):
         t=time.perf_counter()
-        try: post({"jsonrpc":"2.0","id":100+i,"method":"tools/call","params":{"name":"add","arguments":{"a":tid,"b":i}}}, sess)
-        except Exception: nonlocal_["errs"]+=1
+        try:
+            _, _, body = post({"jsonrpc":"2.0","id":100+i,"method":"tools/call","params":{"name":"add","arguments":{"a":tid,"b":i}}}, sess)
+            if b'"error"' in body: worker_errors+=1
+        except Exception: worker_errors+=1
         local.append((time.perf_counter()-t)*1000)
     with lock:
         lats.extend(local)
-        return nonlocal_["errs"]
+        errors.append(worker_errors)
 threads=[threading.Thread(target=work,args=(i,)) for i in range(c)]
 t0=time.perf_counter()
 [t.start() for t in threads]; [t.join() for t in threads]
@@ -144,7 +149,7 @@ elapsed=time.perf_counter()-t0
 lats.sort()
 def p(q): return lats[int(q*(len(lats)-1))] if lats else float('nan')
 res={"scenario":"S2","n":len(lats),"concurrency":c,"elapsed_s":elapsed,
-     "throughput_rps":len(lats)/elapsed,"p50":p(.5),"p95":p(.95),"p99":p(.99),"errors":errs}
+     "throughput_rps":len(lats)/elapsed,"p50":p(.5),"p95":p(.95),"p99":p(.99),"errors":sum(errors)}
 print(json.dumps(res))
 open(f"{out_dir}/S2.json","w").write(json.dumps(res))
 PY
@@ -182,17 +187,21 @@ open(f"{out_dir}/S3.json","w").write(json.dumps(res))
 PY
 ```
 
-## Step 7 — Scenario S4: operator burst reconcile
+## Step 7 — Scenario S4: operator burst-to-ready time
+
+This sends ten rapid metadata updates to one MCPServer and measures until it
+is Ready again. The controller may coalesce updates, so report this as
+submission-to-ready wall time rather than ten separately completed reconciles.
 
 ```bash
-START="$(date +%s%3N)"
+START="$(python3 -c 'import time; print(int(time.time() * 1000))')"
 for i in $(seq 1 10); do
   kubectl annotate mcpserver -n mcp-servers workspace-assistant-mcp \
     qa.mcpruntime.org/ping="$START-$i" --overwrite >/dev/null
 done
 kubectl wait --for=condition=Ready=true mcpserver/workspace-assistant-mcp \
   -n mcp-servers --timeout=120s >/dev/null
-END="$(date +%s%3N)"
+END="$(python3 -c 'import time; print(int(time.time() * 1000))')"
 python3 -c "import json,sys; print(json.dumps({'scenario':'S4','burst':10,'wall_ms':int(sys.argv[1])-int(sys.argv[2])}))" \
   "$END" "$START" | tee "$PERF_OUT_DIR/S4.json"
 

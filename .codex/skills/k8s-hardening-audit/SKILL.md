@@ -22,6 +22,12 @@ For runtime authn/authz, gateway policy, and protocol fuzzing, use
 
 ## Step 1 — Inventory
 
+Select the cluster explicitly before running live commands. For contributor
+QA, use `$HOME/.kube/test-mcp-runtime-config` with context
+`test-mcp-runtime`; never let these commands inherit the production context.
+For a requested production posture audit, select the approved production
+kubeconfig explicitly and label every live finding with that context.
+
 Repo-owned namespaces (per `CLAUDE.md`):
 
 - `mcp-runtime` — operator.
@@ -32,7 +38,11 @@ Repo-owned namespaces (per `CLAUDE.md`):
 - `registry` — Distribution v2 registry.
 - `traefik` — ingress controller (or `kube-system/traefik` on k3s).
 
-For each:
+Only inspect namespaces that exist in the selected cluster. k3s uses the
+external Traefik installation in `kube-system`, while a repo-managed install
+may use `traefik`.
+
+For each existing namespace:
 
 ```sh
 NS=mcp-sentinel
@@ -87,15 +97,20 @@ kubectl get ns mcp-runtime mcp-sentinel mcp-servers registry traefik \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels}{"\n"}{end}'
 ```
 
-Each repo-owned namespace should set:
+Compare each existing namespace with the namespace manifest or provisioning
+code that owns it; do not assume one PSS level applies to every namespace.
+For example, the operator namespace is restricted, while the bundled registry
+namespace intentionally uses `enforce=baseline` and `audit/warn=restricted`
+(`config/registry/base/namespace.yaml`). External Traefik namespaces such as
+`kube-system` are not repo-owned. Treat unexplained weakening from the owning
+manifest as a finding.
+
+Where the owning namespace policy requires restricted, verify:
 
 - `pod-security.kubernetes.io/enforce=restricted`
 - `pod-security.kubernetes.io/audit=restricted`
 - `pod-security.kubernetes.io/warn=restricted`
 
-Any namespace at `baseline` or `privileged` is a finding (severity by what
-runs there: workload namespaces → High, observability namespaces with
-sidecars that need extra caps → Medium with documentation).
 
 Then run `kube-linter` against checked-in manifests:
 
@@ -137,7 +152,9 @@ For each namespace that holds workloads, confirm:
   only via the sidecar.
 - The registry namespace egress is limited (no random outbound).
 
-Probe with a test pod:
+The probe creates a temporary pod and sends traffic. Run it only in an
+explicitly selected disposable test namespace; do not run it against production
+without specific authorization. Clean up the pod after the probe.
 
 ```sh
 kubectl -n mcp-servers run probe --rm -i --image=busybox:1.36 --restart=Never -- sh -c '

@@ -87,7 +87,7 @@ existing `kind-mcp-runtime` contributor cluster. Skill-eval rows covered the
 | UI static syntax | `node --check services/ui/static/app.js` | 0.30s | Browser bundle JavaScript parses |
 | UI skill validation | `quick_validate.py .codex/skills/qa-e2e-ui` | 0.07s | `qa-e2e-ui` format after edits |
 | UI browser smoke | Playwright against `http://localhost:18080/` | about 4-6 min manual | Signed-out state, tenant login, admin login, tabs, UI-triggered API 200s, console sanity, and mobile overflow |
-| Cached Kind e2e smoke/governance | `E2E_CACHE_MODE=1 E2E_SCENARIOS=smoke-auth,governance CLUSTER_NAME=mcp-runtime E2E_KEEP_CLUSTER=1 bash test/e2e/kind.sh` | 630.62s, about 10m31s | Real cluster auth, grant/session governance, gateway policy, CLI flows, ingress, registry auth |
+| Cached Kind e2e smoke/governance | `KUBECONFIG="$HOME/.kube/test-mcp-runtime-config" E2E_CACHE_MODE=1 E2E_SCENARIOS=smoke-auth,governance CLUSTER_NAME=mcp-runtime E2E_KEEP_CLUSTER=1 bash test/e2e/kind.sh` | 630.62s, about 10m31s | Real cluster auth, grant/session governance, gateway policy, CLI flows, ingress, registry auth |
 
 The cached Kind e2e command initially failed after 1m17s because a manual
 port-forward was already using `localhost:18080`. That was an environment

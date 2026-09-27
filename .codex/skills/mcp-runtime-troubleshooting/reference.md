@@ -2,6 +2,13 @@
 
 Symptom-oriented remedies. Prefer `cluster doctor` and targeted fixes before full reinstall.
 
+Commands below that create, patch, or delete Kubernetes resources are cluster
+mutations. First select and verify the intended kubeconfig explicitly. The
+PVC deletion examples erase Kafka or ClickHouse data: use them only on a
+disposable contributor cluster, or after explicit production authorization
+and a verified backup/snapshot. Never copy these commands into production
+recovery without the production runbook's snapshot and approval steps.
+
 ## Common failures
 
 - **Adapter certificate returns `session_not_found` immediately after enrollment:** a created `MCPAgentSession` and updated policy ConfigMap do not prove that the gateway has loaded the session. Kubernetes still needs to project the mounted ConfigMap and the gateway must reload it. Check the target server's applied revision at `/config/status` through an authenticated internal connection, or use a bounded certificate-authenticated initialize probe through its real ingress. For revocation, require `401 session_revoked` for that exact certificate on that server; do not inspect another server's policy or match an unrelated revoked session. The Kind helper is `test/e2e/lib/adapter-certificates.sh`. Never retry tool calls to wait for policy propagation.
